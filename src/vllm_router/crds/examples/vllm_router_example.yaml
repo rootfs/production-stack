@@ -1,0 +1,119 @@
+# Example 1: Basic vLLM Router with K8s service discovery
+apiVersion: vllm.ai/v1alpha1
+kind: VLLMRouter
+metadata:
+  name: default-router
+  namespace: default
+spec:
+  serviceDiscovery:
+    type: k8s
+    k8sConfig:
+      namespace: default
+      port: 8000
+      labelSelector: "app=vllm-engine"
+  routingLogic:
+    type: roundrobin
+  monitoring:
+    engineStatsInterval: 10
+    requestStatsWindow: 60
+    logStats: true
+---
+# Example 2: vLLM Router with static service discovery
+apiVersion: vllm.ai/v1alpha1
+kind: VLLMRouter
+metadata:
+  name: static-router
+  namespace: default
+spec:
+  serviceDiscovery:
+    type: static
+    staticConfig:
+      backends:
+        - "http://vllm-llama-1:8000"
+        - "http://vllm-llama-2:8000"
+        - "http://vllm-mistral:8000"
+      models:
+        - "llama3-8b"
+        - "llama3-8b"
+        - "mistral-7b"
+  routingLogic:
+    type: session
+    sessionConfig:
+      sessionKey: "x-user-id"
+  monitoring:
+    engineStatsInterval: 10
+    requestStatsWindow: 60
+    logStats: true
+---
+# Example 3: Backend Group for Llama models
+apiVersion: vllm.ai/v1alpha1
+kind: VLLMBackendGroup
+metadata:
+  name: llama-backends
+  namespace: default
+spec:
+  backends:
+    - name: llama-1
+      modelName: "llama3-8b"
+      endpoint:
+        k8sRef:
+          labelSelector: "app=vllm-engine,model=llama3-8b"
+          namespace: default
+          port: 8000
+      weight: 1
+    - name: llama-2
+      modelName: "llama3-8b"
+      endpoint:
+        k8sRef:
+          labelSelector: "app=vllm-engine,model=llama3-8b"
+          namespace: default
+          port: 8000
+      weight: 1
+---
+# Example 4: Backend Group for Mistral models
+apiVersion: vllm.ai/v1alpha1
+kind: VLLMBackendGroup
+metadata:
+  name: mistral-backends
+  namespace: default
+spec:
+  backends:
+    - name: mistral-1
+      modelName: "mistral-7b"
+      endpoint:
+        k8sRef:
+          labelSelector: "app=vllm-engine,model=mistral-7b"
+          namespace: default
+          port: 8000
+      weight: 1
+---
+# Example 5: Routing Rules for model-based routing
+apiVersion: vllm.ai/v1alpha1
+kind: VLLMRoutingRule
+metadata:
+  name: model-routing
+  namespace: default
+spec:
+  rules:
+    - match:
+        modelName: "llama3-8b"
+      action:
+        backendGroupRef: "llama-backends"
+        routingLogic:
+          type: session
+          sessionKey: "x-user-id"
+    - match:
+        modelName: "mistral-7b"
+      action:
+        backendGroupRef: "mistral-backends"
+        routingLogic:
+          type: roundrobin
+    - match:
+        headers:
+          - name: "x-model-preference"
+            value: "llama"
+            matchType: "Prefix"
+      action:
+        backendGroupRef: "llama-backends"
+        routingLogic:
+          type: roundrobin 
