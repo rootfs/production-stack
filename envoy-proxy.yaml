@@ -1,0 +1,193 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: envoy-proxy
+  labels:
+    app: envoy-proxy
+spec:
+  replicas: 2
+  selector:
+    matchLabels:
+      app: envoy-proxy
+  template:
+    metadata:
+      labels:
+        app: envoy-proxy
+    spec:
+      containers:
+      - name: envoy
+        image: envoyproxy/envoy:v1.27-latest
+        ports:
+        - containerPort: 8080
+          name: http
+        - containerPort: 9901
+          name: admin
+        volumeMounts:
+        - name: envoy-config
+          mountPath: /etc/envoy
+        resources:
+          requests:
+            cpu: "500m"
+            memory: "512Mi"
+          limits:
+            cpu: "2"
+            memory: "2Gi"
+        readinessProbe:
+          httpGet:
+            path: /ready
+            port: admin
+          initialDelaySeconds: 5
+          periodSeconds: 10
+        livenessProbe:
+          httpGet:
+            path: /server_info
+            port: admin
+          initialDelaySeconds: 15
+          periodSeconds: 20
+        command:
+        - envoy
+        - -c
+        - /etc/envoy/envoy.yaml
+        - --service-cluster
+        - envoy-proxy
+        - --service-node
+        - envoy-proxy
+      volumes:
+      - name: envoy-config
+        configMap:
+          name: envoy-config
+
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: envoy-config
+data:
+  envoy.yaml: |
+    static_resources:
+      listeners:
+      - name: main_listener
+        address:
+          socket_address:
+            address: 0.0.0.0
+            port_value: 8080
+        filter_chains:
+        - filters:
+          - name: envoy.filters.network.http_connection_manager
+            typed_config:
+              "@type": type.googleapis.com/envoy.extensions.filters.network.http_connection_manager.v3.HttpConnectionManager
+              stat_prefix: ingress_http
+              access_log:
+              - name: envoy.access_loggers.stdout
+                typed_config:
+                  "@type": type.googleapis.com/envoy.extensions.access_loggers.stream.v3.StdoutAccessLog
+              http_filters:
+              - name: envoy.filters.http.ext_proc
+                typed_config:
+                  "@type": type.googleapis.com/envoy.extensions.filters.http.ext_proc.v3.ExternalProcessor
+                  grpc_service:
+                    envoy_grpc:
+                      cluster_name: extproc_service
+                    timeout: 30s
+                  failure_mode_allow: false
+                  message_timeout: 1s
+                  processing_mode:
+                    request_header_mode: SEND
+                    response_header_mode: SEND
+                    request_body_mode: BUFFERED
+                    response_body_mode: BUFFERED
+                    request_trailer_mode: SKIP
+                    response_trailer_mode: SKIP
+              - name: envoy.filters.http.router
+                typed_config:
+                  "@type": type.googleapis.com/envoy.extensions.filters.http.router.v3.Router
+              
+              route_config:
+                name: local_route
+                virtual_hosts:
+                - name: local_service
+                  domains: ["*"]
+                  routes:
+                  # Chat completion route
+                  - match:
+                      prefix: "/v1/chat"
+                    route:
+                      cluster: vllm_backends
+                      timeout: 300s
+                    metadata:
+                      filter_metadata:
+                        envoy.filters.http.ext_proc:
+                          route_name: "chat-route"
+                  
+                  # Text completion route
+                  - match:
+                      prefix: "/v1/completions"
+                    route:
+                      cluster: vllm_backends
+                      timeout: 300s
+                    metadata:
+                      filter_metadata:
+                        envoy.filters.http.ext_proc:
+                          route_name: "completion-route"
+                  
+                  # Default route for model-specified requests
+                  - match:
+                      prefix: "/v1/"
+                    route:
+                      cluster: vllm_backends
+                      timeout: 300s
+
+      clusters:
+      # ExtProc service cluster
+      - name: extproc_service
+        connect_timeout: 0.25s
+        type: STRICT_DNS
+        lb_policy: ROUND_ROBIN
+        http2_protocol_options: {}
+        load_assignment:
+          cluster_name: extproc_service
+          endpoints:
+          - lb_endpoints:
+            - endpoint:
+                address:
+                  socket_address:
+                    address: vllm-extproc
+                    port_value: 50051
+      
+      # VLLM backends cluster
+      - name: vllm_backends
+        connect_timeout: 0.25s
+        type: STRICT_DNS
+        lb_policy: ROUND_ROBIN
+        load_assignment:
+          cluster_name: vllm_backends
+          endpoints:
+          - lb_endpoints:
+            - endpoint:
+                address:
+                  socket_address:
+                    address: vllm-backend
+                    port_value: 8000
+
+    admin:
+      address:
+        socket_address:
+          address: 0.0.0.0
+          port_value: 9901
+
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: envoy-proxy
+spec:
+  selector:
+    app: envoy-proxy
+  ports:
+  - port: 8080
+    targetPort: http
+    name: http
+  - port: 9901
+    targetPort: admin
+    name: admin
+  type: ClusterIP 

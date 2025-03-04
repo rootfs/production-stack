@@ -1,0 +1,122 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: vllm-extproc-config
+data:
+  routes.json: |
+    [
+      {
+        "name": "chat-route",
+        "model": "gpt-3.5-turbo",
+        "path_prefix": "/v1/chat"
+      },
+      {
+        "name": "completion-route",
+        "model": "text-davinci-003",
+        "path_prefix": "/v1/completions"
+      }
+    ]
+
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: vllm-extproc
+  labels:
+    app: vllm-extproc
+spec:
+  replicas: 2
+  selector:
+    matchLabels:
+      app: vllm-extproc
+  template:
+    metadata:
+      labels:
+        app: vllm-extproc
+    spec:
+      containers:
+      - name: vllm-extproc
+        image: vllm-extproc:latest  # Replace with your image
+        imagePullPolicy: IfNotPresent
+        ports:
+        - containerPort: 50051
+          name: grpc
+        args:
+        - "--service-discovery=k8s"
+        - "--k8s-namespace=default"
+        - "--k8s-port=8000"
+        - "--k8s-label-selector=app=vllm"
+        - "--routing-logic=least_outstanding_requests"
+        - "--route-config=/etc/vllm/routes.json"
+        - "--log-level=info"
+        volumeMounts:
+        - name: config-volume
+          mountPath: /etc/vllm
+        resources:
+          requests:
+            cpu: "500m"
+            memory: "512Mi"
+          limits:
+            cpu: "2"
+            memory: "2Gi"
+        readinessProbe:
+          grpc:
+            port: 50051
+          initialDelaySeconds: 5
+          periodSeconds: 10
+        livenessProbe:
+          grpc:
+            port: 50051
+          initialDelaySeconds: 15
+          periodSeconds: 20
+      volumes:
+      - name: config-volume
+        configMap:
+          name: vllm-extproc-config
+
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: vllm-extproc
+spec:
+  selector:
+    app: vllm-extproc
+  ports:
+  - port: 50051
+    targetPort: grpc
+    name: grpc
+  type: ClusterIP
+
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: vllm-backend
+spec:
+  selector:
+    app: vllm
+  ports:
+  - port: 8000
+    targetPort: 8000
+    name: http
+  type: ClusterIP
+
+---
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: vllm-ingress
+  annotations:
+    kubernetes.io/ingress.class: "nginx"
+spec:
+  rules:
+  - http:
+      paths:
+      - path: /v1/
+        pathType: Prefix
+        backend:
+          service:
+            name: envoy-proxy
+            port:
+              number: 8080 
