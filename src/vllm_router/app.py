@@ -1,9 +1,13 @@
+"""FastAPI application for vLLM router."""
+
+import asyncio
 import logging
 import threading
 from contextlib import asynccontextmanager
 
 import uvicorn
-from fastapi import FastAPI
+from fastapi import FastAPI, Request
+from fastapi.responses import Response
 
 from vllm_router.dynamic_config import (
     DynamicRouterConfig,
@@ -11,6 +15,15 @@ from vllm_router.dynamic_config import (
     initialize_dynamic_config_watcher,
 )
 from vllm_router.experimental import get_feature_gates, initialize_feature_gates
+
+# Import PII detection
+from vllm_router.experimental.pii import (
+    PIIConfig,
+    check_pii,
+    get_pii_analyzer,
+    initialize_pii_detection,
+    shutdown_pii_detection,
+)
 
 try:
     # Semantic cache integration
@@ -66,6 +79,25 @@ from vllm_router.utils import parse_static_model_names, parse_static_urls, set_u
 logger = logging.getLogger("uvicorn")
 
 
+# PII detection middleware
+async def pii_detection_middleware(request: Request, call_next):
+    """Middleware to check requests for PII."""
+    # Skip PII detection for non-API endpoints
+    if not request.url.path.startswith("/v1/"):
+        return await call_next(request)
+
+    # Get PII analyzer and check request
+    analyzer = get_pii_analyzer()
+    if analyzer:
+        # Use app's PII config
+        config = request.app.state.pii_config
+        response = await check_pii(request, analyzer, config)
+        if response:
+            return response
+
+    return await call_next(request)
+
+
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     app.state.httpx_client_wrapper.start()
@@ -89,9 +121,13 @@ async def lifespan(app: FastAPI):
         logger.info("Closing dynamic config watcher")
         dyn_cfg_watcher.close()
 
+    # Shutdown PII detection if enabled
+    if get_pii_analyzer():
+        logger.info("Shutting down PII detection")
+        await shutdown_pii_detection()
 
-# TODO: This method needs refactoring, since it has nested if statements and is too long
-def initialize_all(app: FastAPI, args):
+
+async def initialize_all(app: FastAPI, args):
     """
     Initialize all the components of the router with the given arguments.
 
@@ -135,8 +171,32 @@ def initialize_all(app: FastAPI, args):
 
     # Initialize feature gates
     initialize_feature_gates(args.feature_gates)
-    # Check if the SemanticCache feature gate is enabled
     feature_gates = get_feature_gates()
+
+    # Initialize PII detection if enabled
+    if feature_gates.is_enabled("PIIDetection"):
+        logger.info("Initializing PII detection")
+        # Create PII config
+        pii_config = PIIConfig(
+            enabled=True,
+            score_threshold=args.pii_score_threshold
+        )
+        app.state.pii_config = pii_config
+
+        # Initialize PII detection with analyzer config
+        await initialize_pii_detection(
+            analyzer_type=args.pii_analyzer,
+            config={
+                "languages": args.pii_languages.split(",") if args.pii_languages else ["en"],
+                "score_threshold": args.pii_score_threshold
+            }
+        )
+
+        # Add PII detection middleware
+        app.middleware("http")(pii_detection_middleware)
+        logger.info("PII detection middleware added")
+
+    # Check if the SemanticCache feature gate is enabled
     if semantic_cache_available:
         if feature_gates.is_enabled("SemanticCache"):
             # The feature gate is enabled, explicitly enable the semantic cache
@@ -214,7 +274,7 @@ app.state.semantic_cache_available = semantic_cache_available
 
 def main():
     args = parse_args()
-    initialize_all(app, args)
+    asyncio.run(initialize_all(app, args))
     if args.log_stats:
         threading.Thread(
             target=log_stats, args=(args.log_stats_interval,), daemon=True

@@ -52,106 +52,119 @@ def validate_args(args):
 
 
 def parse_args():
-    parser = argparse.ArgumentParser(description="Run the FastAPI app.")
-    parser.add_argument(
-        "--host", default="0.0.0.0", help="The host to run the server on."
+    """Parse command line arguments."""
+    parser = argparse.ArgumentParser(
+        description="vLLM router for load balancing and request routing."
     )
-    parser.add_argument(
-        "--port", type=int, default=8001, help="The port to run the server on."
-    )
+
+    # Service discovery arguments
     parser.add_argument(
         "--service-discovery",
-        required=True,
+        type=str,
         choices=["static", "k8s"],
-        help="The service discovery type.",
+        default="static",
+        help="Service discovery method to use.",
     )
     parser.add_argument(
         "--static-backends",
         type=str,
-        default=None,
-        help="The URLs of static backends, separated by commas. E.g., http://localhost:8000,http://localhost:8001",
+        default="http://localhost:8000",
+        help="Comma-separated list of backend URLs (for static service discovery).",
     )
     parser.add_argument(
         "--static-models",
         type=str,
-        default=None,
-        help="The models of static backends, separated by commas. E.g., model1,model2",
+        default="default",
+        help="Comma-separated list of model names (for static service discovery).",
+    )
+    parser.add_argument(
+        "--k8s-namespace",
+        type=str,
+        help="Kubernetes namespace to watch for vLLM pods.",
     )
     parser.add_argument(
         "--k8s-port",
         type=int,
         default=8000,
-        help="The port of vLLM processes when using K8s service discovery.",
-    )
-    parser.add_argument(
-        "--k8s-namespace",
-        type=str,
-        default="default",
-        help="The namespace of vLLM pods when using K8s service discovery.",
+        help="Port number for vLLM pods in Kubernetes.",
     )
     parser.add_argument(
         "--k8s-label-selector",
         type=str,
-        default="",
-        help="The label selector to filter vLLM pods when using K8s service discovery.",
+        help="Label selector for vLLM pods in Kubernetes.",
     )
+
+    # Routing arguments
     parser.add_argument(
         "--routing-logic",
         type=str,
-        required=True,
         choices=["roundrobin", "session"],
-        help="The routing logic to use",
+        default="roundrobin",
+        help="Routing logic to use.",
     )
     parser.add_argument(
         "--session-key",
         type=str,
-        default=None,
-        help="The key (in the header) to identify a session.",
+        default="session_id",
+        help="Header key for session-based routing.",
     )
 
-    # Batch API
-    # TODO(gaocegege): Make these batch api related arguments to a separate config.
+    # Server arguments
+    parser.add_argument(
+        "--host",
+        type=str,
+        default="0.0.0.0",
+        help="Host to bind the server to.",
+    )
+    parser.add_argument(
+        "--port",
+        type=int,
+        default=8001,
+        help="Port to bind the server to.",
+    )
+
+    # Batch API arguments
     parser.add_argument(
         "--enable-batch-api",
         action="store_true",
-        help="Enable the batch API for processing files.",
+        help="Enable batch API endpoints.",
     )
     parser.add_argument(
         "--file-storage-class",
         type=str,
-        default="local_file",
-        choices=["local_file"],
-        help="The file storage class to use.",
+        default="local",
+        help="Storage class for file storage.",
     )
     parser.add_argument(
         "--file-storage-path",
         type=str,
-        default="/tmp/vllm_files",
-        help="The path to store files.",
+        default="/tmp/vllm-router",
+        help="Path for file storage.",
     )
     parser.add_argument(
         "--batch-processor",
         type=str,
         default="local",
-        choices=["local"],
-        help="The batch processor to use.",
+        help="Batch processor type.",
     )
 
-    # Monitoring
+    # Stats arguments
     parser.add_argument(
         "--engine-stats-interval",
         type=int,
-        default=30,
-        help="The interval in seconds to scrape engine statistics.",
+        default=10,
+        help="Interval in seconds to scrape engine stats.",
     )
     parser.add_argument(
         "--request-stats-window",
         type=int,
         default=60,
-        help="The sliding window in seconds to compute request statistics.",
+        help="Window size in seconds for request stats.",
     )
     parser.add_argument(
-        "--log-stats", action="store_true", help="Log statistics periodically."
+        "--log-stats",
+        action="store_true",
+        help="Enable logging of statistics.",
     )
     parser.add_argument(
         "--log-stats-interval",
@@ -160,31 +173,43 @@ def parse_args():
         help="The interval in seconds to log statistics.",
     )
 
+    # Feature gates
     parser.add_argument(
-        "--dynamic-config-json",
+        "--feature-gates",
         type=str,
-        default=None,
-        help="The path to the json file containing the dynamic configuration.",
+        help="Comma-separated list of feature gates (e.g. SemanticCache=true,PIIDetection=true).",
+    )
+
+    # PII detection arguments
+    parser.add_argument(
+        "--pii-analyzer",
+        type=str,
+        choices=["presidio"],
+        default="presidio",
+        help="PII analyzer to use.",
+    )
+    parser.add_argument(
+        "--pii-languages",
+        type=str,
+        default="en",
+        help="Comma-separated list of languages for PII detection.",
+    )
+    parser.add_argument(
+        "--pii-score-threshold",
+        type=float,
+        default=0.5,
+        help="Score threshold for PII detection (0.0-1.0).",
     )
 
     # Add --version argument
     parser.add_argument(
         "--version",
-        action="version",
-        version=f"%(prog)s {__version__}",
-        help="Show version and exit",
+        action="store_true",
+        help="Show version information.",
     )
 
     if semantic_cache_available:
         add_semantic_cache_args(parser)
-
-    # Add feature gates argument
-    parser.add_argument(
-        "--feature-gates",
-        type=str,
-        default="",
-        help="Comma-separated list of feature gates (e.g., 'SemanticCache=true')",
-    )
 
     # Add log level argument
     parser.add_argument(
@@ -193,6 +218,13 @@ def parse_args():
         default="info",
         choices=["critical", "error", "warning", "info", "debug", "trace"],
         help="Log level for uvicorn. Default is 'info'.",
+    )
+
+    # Add dynamic config argument
+    parser.add_argument(
+        "--dynamic-config-json",
+        type=str,
+        help="Path to dynamic configuration JSON file",
     )
 
     args = parser.parse_args()
