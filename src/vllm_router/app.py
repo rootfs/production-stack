@@ -1,5 +1,3 @@
-"""FastAPI application for vLLM router."""
-
 import asyncio
 import logging
 import threading
@@ -126,7 +124,7 @@ async def lifespan(app: FastAPI):
         logger.info("Shutting down PII detection")
         await shutdown_pii_detection()
 
-
+# TODO: This method needs refactoring, since it has nested if statements and is too long
 async def initialize_all(app: FastAPI, args):
     """
     Initialize all the components of the router with the given arguments.
@@ -177,19 +175,18 @@ async def initialize_all(app: FastAPI, args):
     if feature_gates.is_enabled("PIIDetection"):
         logger.info("Initializing PII detection")
         # Create PII config
-        pii_config = PIIConfig(
-            enabled=True,
-            score_threshold=args.pii_score_threshold
-        )
+        pii_config = PIIConfig(enabled=True, score_threshold=args.pii_score_threshold)
         app.state.pii_config = pii_config
 
         # Initialize PII detection with analyzer config
         await initialize_pii_detection(
             analyzer_type=args.pii_analyzer,
             config={
-                "languages": args.pii_languages.split(",") if args.pii_languages else ["en"],
-                "score_threshold": args.pii_score_threshold
-            }
+                "languages": (
+                    args.pii_languages.split(",") if args.pii_languages else ["en"]
+                ),
+                "score_threshold": args.pii_score_threshold,
+            },
         )
 
         # Add PII detection middleware

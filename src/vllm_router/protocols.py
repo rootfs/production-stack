@@ -5,12 +5,14 @@ from typing import List, Optional
 try:
     # Pydantic v2
     from pydantic import BaseModel, ConfigDict, Field, model_validator
+
     PYDANTIC_V2 = True
 except ImportError:
     # Pydantic v1
     from pydantic import BaseModel, Field
-    from pydantic.config import ConfigDict
     from pydantic.class_validators import validator
+    from pydantic.config import ConfigDict
+
     PYDANTIC_V2 = False
 
 
@@ -19,11 +21,10 @@ logger = logging.getLogger(__name__)
 
 class OpenAIBaseModel(BaseModel):
     # OpenAI API does allow extra fields
-    model_config = ConfigDict(extra="allow") if PYDANTIC_V2 else {
-        "extra": "allow"
-    }
+    model_config = ConfigDict(extra="allow") if PYDANTIC_V2 else {"extra": "allow"}
 
     if PYDANTIC_V2:
+
         @model_validator(mode="before")
         @classmethod
         def __log_extra_fields__(cls, data):
@@ -44,7 +45,9 @@ class OpenAIBaseModel(BaseModel):
                         extra_fields,
                     )
             return data
+
     else:
+
         @validator("*", pre=True)
         def log_extra_fields(cls, v, values, **kwargs):
             field_names = set(cls.__fields__.keys())

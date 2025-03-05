@@ -184,7 +184,7 @@ def parse_args():
     parser.add_argument(
         "--pii-analyzer",
         type=str,
-        choices=["presidio"],
+        choices=["presidio", "regex"],
         default="presidio",
         help="PII analyzer to use.",
     )
