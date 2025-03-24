@@ -1,0 +1,88 @@
+# Example 1: Gateway Configuration
+apiVersion: production-stack.vllm.ai/v1alpha1
+kind: InferenceGateway
+metadata:
+  name: llm-gateway
+spec:
+  serviceDiscovery: "static"
+  routeStrategy: "round-robin"
+  routes:
+    - modelName: "llama3-70b"
+      serviceRef:
+        name: "llama3-inference"
+        apiGroup: "production-stack.vllm.ai"
+        kind: "InferenceService"
+---
+# Example 2: Inference Service with PDD
+apiVersion: production-stack.vllm.ai/v1alpha1
+kind: InferenceService
+metadata:
+  name: llama3-inference
+  namespace: default
+spec:
+  modelName: "llama3-70b"
+  engine: "vllm"
+  engineConfig:
+    tensor-parallel-size: "4"
+    max-num-batched-tokens: "8192"
+    max-num-seqs: "256"
+  backendRef:
+    name: "llama3-backend"
+    namespace: "default"
+    port: 8000
+  prefillDecodingRef:
+    name: "llama3-pdd"
+    apiGroup: "production-stack.vllm.ai"
+    kind: "PrefillDecodingDisaggregation"
+---
+# Example 3: PrefillDecodingDisaggregation Configuration
+apiVersion: production-stack.vllm.ai/v1alpha1
+kind: PrefillDecodingDisaggregation
+metadata:
+  name: llama3-pdd
+  namespace: default
+spec:
+  modelName: "llama3-70b"
+  engine: "vllm"
+  engineConfig:
+    tensor-parallel-size: "4"
+    max-num-batched-tokens: "8192"
+    max-num-seqs: "256"
+  topologyHint:
+    nodeSelector:
+      kubernetes.io/arch: "amd64"
+    affinity:
+      nodeAffinity:
+        requiredDuringSchedulingIgnoredDuringExecution:
+          nodeSelectorTerms:
+          - matchExpressions:
+            - key: "nvidia.com/gpu"
+              operator: "Exists"
+  prefillResources:
+    requests:
+      nvidia.com/gpu: "4"
+      memory: "32Gi"
+    limits:
+      nvidia.com/gpu: "4"
+      memory: "32Gi"
+  decodeResources:
+    requests:
+      nvidia.com/gpu: "1"
+      memory: "16Gi"
+    limits:
+      nvidia.com/gpu: "1"
+      memory: "16Gi"
+---
+# Example 4: Backend Service
+apiVersion: v1
+kind: Service
+metadata:
+  name: llama3-backend
+  namespace: default
+spec:
+  ports:
+    - name: http
+      port: 8000
+      targetPort: 8000
+  selector:
+    app: llama3-inference

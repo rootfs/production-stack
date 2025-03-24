@@ -1,0 +1,257 @@
+---
+apiVersion: apiextensions.k8s.io/v1
+kind: CustomResourceDefinition
+metadata:
+  annotations:
+    controller-gen.kubebuilder.io/version: v0.16.1
+  name: inferenceservices.production-stack.vllm.ai
+spec:
+  group: production-stack.vllm.ai
+  names:
+    kind: InferenceService
+    listKind: InferenceServiceList
+    plural: inferenceservices
+    singular: inferenceservice
+  scope: Namespaced
+  versions:
+  - additionalPrinterColumns:
+    - jsonPath: .spec.modelName
+      name: Model
+      type: string
+    - jsonPath: .spec.backendRef.name
+      name: Backend
+      type: string
+    - jsonPath: .spec.inferenceCacheRef.name
+      name: Cache
+      type: string
+    - jsonPath: .status.conditions[?(@.type=='Ready')].status
+      name: Status
+      type: string
+    - jsonPath: .metadata.creationTimestamp
+      name: Age
+      type: date
+    name: v1alpha1
+    schema:
+      openAPIV3Schema:
+        description: InferenceService is the Schema for the inferenceservices API
+        properties:
+          apiVersion:
+            description: |-
+              APIVersion defines the versioned schema of this representation of an object.
+              Servers should convert recognized schemas to the latest internal value, and
+              may reject unrecognized values.
+              More info: https://git.k8s.io/community/contributors/devel/sig-architecture/api-conventions.md#resources
+            type: string
+          kind:
+            description: |-
+              Kind is a string value representing the REST resource this object represents.
+              Servers may infer this from the endpoint the client submits requests to.
+              Cannot be updated.
+              In CamelCase.
+              More info: https://git.k8s.io/community/contributors/devel/sig-architecture/api-conventions.md#types-kinds
+            type: string
+          metadata:
+            type: object
+          spec:
+            description: InferenceServiceSpec defines the desired state of InferenceService
+            properties:
+              backendRef:
+                description: BackendRef is a reference to the Envoy Gateway Backend
+                properties:
+                  group:
+                    description: Group is the group of the referent. For Envoy Gateway
+                      Backend, this is "gateway.envoyproxy.io"
+                    enum:
+                    - gateway.envoyproxy.io
+                    type: string
+                  kind:
+                    description: Kind is the kind of the referent. For Envoy Gateway
+                      Backend, this is "Backend"
+                    enum:
+                    - Backend
+                    type: string
+                  name:
+                    description: Name is the name of the referent
+                    type: string
+                  port:
+                    description: Port is the port of the referent
+                    format: int32
+                    maximum: 65535
+                    minimum: 1
+                    type: integer
+                  weight:
+                    description: Weight is the weight of the backend
+                    format: int32
+                    maximum: 100
+                    minimum: 0
+                    type: integer
+                required:
+                - group
+                - kind
+                - name
+                - port
+                type: object
+              inferenceCacheRef:
+                description: InferenceCacheRef is an optional reference to an InferenceCache
+                properties:
+                  apiGroup:
+                    description: APIGroup is the group for the resource being referenced
+                    enum:
+                    - production-stack.vllm.ai
+                    type: string
+                  kind:
+                    description: Kind is the kind of resource being referenced
+                    enum:
+                    - InferenceService
+                    type: string
+                  name:
+                    description: Name is the name of the referenced object
+                    type: string
+                required:
+                - apiGroup
+                - kind
+                - name
+                type: object
+              modelName:
+                description: ModelName is the name of the model to serve
+                type: string
+              nlpFilters:
+                description: NLPFilters defines the NLP filters to apply
+                items:
+                  description: NLPAction defines an NLP action to perform
+                  properties:
+                    parameters:
+                      additionalProperties:
+                        type: string
+                      description: Parameters are the parameters for the action
+                      type: object
+                    type:
+                      description: Type is the type of NLP action
+                      enum:
+                      - tokenLimit
+                      - contentFilter
+                      - sentimentAnalysis
+                      type: string
+                  required:
+                  - type
+                  type: object
+                type: array
+              prefillDecodingRef:
+                description: PrefillDecodingRef is an optional reference to a PrefillDecodingDisaggregation
+                  resource
+                properties:
+                  apiGroup:
+                    description: APIGroup is the group for the resource being referenced
+                    enum:
+                    - production-stack.vllm.ai
+                    type: string
+                  kind:
+                    description: Kind is the kind of resource being referenced
+                    enum:
+                    - InferenceService
+                    type: string
+                  name:
+                    description: Name is the name of the referenced object
+                    type: string
+                required:
+                - apiGroup
+                - kind
+                - name
+                type: object
+              speculativeDecodingRef:
+                description: SpeculativeDecodingRef is an optional reference to a
+                  SpeculativeDecoding resource
+                properties:
+                  apiGroup:
+                    description: APIGroup is the group for the resource being referenced
+                    enum:
+                    - production-stack.vllm.ai
+                    type: string
+                  kind:
+                    description: Kind is the kind of resource being referenced
+                    enum:
+                    - InferenceService
+                    type: string
+                  name:
+                    description: Name is the name of the referenced object
+                    type: string
+                required:
+                - apiGroup
+                - kind
+                - name
+                type: object
+            required:
+            - backendRef
+            - modelName
+            type: object
+          status:
+            description: InferenceServiceStatus defines the observed state of InferenceService
+            properties:
+              conditions:
+                description: Conditions represent the latest available observations
+                  of an object's state
+                items:
+                  description: Condition contains details for one aspect of the current
+                    state of this API Resource.
+                  properties:
+                    lastTransitionTime:
+                      description: |-
+                        lastTransitionTime is the last time the condition transitioned from one status to another.
+                        This should be when the underlying condition changed.  If that is not known, then using the time when the API field changed is acceptable.
+                      format: date-time
+                      type: string
+                    message:
+                      description: |-
+                        message is a human readable message indicating details about the transition.
+                        This may be an empty string.
+                      maxLength: 32768
+                      type: string
+                    observedGeneration:
+                      description: |-
+                        observedGeneration represents the .metadata.generation that the condition was set based upon.
+                        For instance, if .metadata.generation is currently 12, but the .status.conditions[x].observedGeneration is 9, the condition is out of date
+                        with respect to the current state of the instance.
+                      format: int64
+                      minimum: 0
+                      type: integer
+                    reason:
+                      description: |-
+                        reason contains a programmatic identifier indicating the reason for the condition's last transition.
+                        Producers of specific condition types may define expected values and meanings for this field,
+                        and whether the values are considered a guaranteed API.
+                        The value should be a CamelCase string.
+                        This field may not be empty.
+                      maxLength: 1024
+                      minLength: 1
+                      pattern: ^[A-Za-z]([A-Za-z0-9_,:]*[A-Za-z0-9_])?$
+                      type: string
+                    status:
+                      description: status of the condition, one of True, False, Unknown.
+                      enum:
+                      - "True"
+                      - "False"
+                      - Unknown
+                      type: string
+                    type:
+                      description: type of condition in CamelCase or in foo.example.com/CamelCase.
+                      maxLength: 316
+                      pattern: ^([a-z0-9]([-a-z0-9]*[a-z0-9])?(\.[a-z0-9]([-a-z0-9]*[a-z0-9])?)*/)?(([A-Za-z0-9][-A-Za-z0-9_.]*)?[A-Za-z0-9])$
+                      type: string
+                  required:
+                  - lastTransitionTime
+                  - message
+                  - reason
+                  - status
+                  - type
+                  type: object
+                type: array
+              lastUpdated:
+                description: LastUpdated is the last time the status was updated
+                format: date-time
+                type: string
+            type: object
+        type: object
+    served: true
+    storage: true
+    subresources:
+      status: {}
