@@ -12,7 +12,8 @@ repos:
     exclude: |
       (?x)(
           ^helm/templates/|
-          .github/deployment-router.yaml
+          .github/deployment-router.yaml|
+          ^examples/.*\.yaml$
       )
   - id: end-of-file-fixer
   - id: requirements-txt-fixer

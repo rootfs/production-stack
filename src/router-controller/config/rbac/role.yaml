@@ -5,9 +5,9 @@ metadata:
   name: manager-role
 rules:
 - apiGroups:
-  - ""
+  - apps
   resources:
-  - configmaps
+  - deployments
   verbs:
   - create
   - delete
@@ -19,8 +19,21 @@ rules:
 - apiGroups:
   - ""
   resources:
+  - configmaps
   - pods
   - services
+  verbs:
+  - create
+  - delete
+  - get
+  - list
+  - patch
+  - update
+  - watch
+- apiGroups:
+  - gateway.envoyproxy.io
+  resources:
+  - backends
   verbs:
   - get
   - list
@@ -28,6 +41,11 @@ rules:
 - apiGroups:
   - production-stack.vllm.ai
   resources:
+  - inferencecaches
+  - inferencegateways
+  - inferenceservices
+  - prefilldecodingdisaggregations
+  - speculativedecodings
   - staticroutes
   verbs:
   - create
@@ -40,12 +58,22 @@ rules:
 - apiGroups:
   - production-stack.vllm.ai
   resources:
+  - inferencecaches/finalizers
+  - inferencegateways/finalizers
+  - inferenceservices/finalizers
+  - prefilldecodingdisaggregations/finalizers
+  - speculativedecodings/finalizers
   - staticroutes/finalizers
   verbs:
   - update
 - apiGroups:
   - production-stack.vllm.ai
   resources:
+  - inferencecaches/status
+  - inferencegateways/status
+  - inferenceservices/status
+  - prefilldecodingdisaggregations/status
+  - speculativedecodings/status
   - staticroutes/status
   verbs:
   - get

@@ -1,0 +1,82 @@
+apiVersion: production-stack.vllm.ai/v1alpha1
+kind: InferenceGateway
+metadata:
+  name: pdd-gateway
+spec:
+  serviceDiscovery: "static"
+  routeStrategy: "round-robin"
+  modelRoutes:
+    - modelName: "llama3-70b"
+      serviceRef:
+        name: "vllm-service"
+        apiGroup: "production-stack.vllm.ai"
+        kind: "InferenceService"
+---
+apiVersion: production-stack.vllm.ai/v1alpha1
+kind: InferenceService
+metadata:
+  name: vllm-service
+  namespace: default
+spec:
+  modelName: "llama3-70b"
+  backendRef:
+    name: "vllm-backend"
+    namespace: "default"
+    port: 8000
+  prefillDecodingRef:
+    name: "pdd-llama3-70b"
+    apiGroup: "production-stack.vllm.ai"
+    kind: "PrefillDecodingDisaggregation"
+---
+apiVersion: production-stack.vllm.ai/v1alpha1
+kind: PrefillDecodingDisaggregation
+metadata:
+  name: pdd-llama3-70b
+  namespace: default
+spec:
+  modelName: "llama3-70b"
+  topologyHint:
+    nodeSelector:
+      gpuType: "NVIDIA-A100"
+      zone: "rack1"
+  prefillResources:
+    requests:
+      nvidia.com/gpu: "4"
+      memory: "32Gi"
+    limits:
+      nvidia.com/gpu: "4"
+      memory: "32Gi"
+  decodeResources:
+    requests:
+      nvidia.com/gpu: "1"
+      memory: "16Gi"
+    limits:
+      nvidia.com/gpu: "1"
+      memory: "16Gi"
+---
+# Backend Services
+apiVersion: v1
+kind: Service
+metadata:
+  name: vllm-backend
+  namespace: default
+spec:
+  ports:
+    - name: http
+      port: 8000
+      targetPort: 8000
+  selector:
+    app: vllm
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: redis-cache
+  namespace: default
+spec:
+  ports:
+    - name: redis
+      port: 6379
+      targetPort: 6379
+  selector:
+    app: redis-cache

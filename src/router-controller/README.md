@@ -1,104 +1,141 @@
-# Router Controller
+# Router Controller for Production Stack
 
-This is the controller for the Router CRD. It is responsible for creating and updating the ConfigMap for the vllm_router.
+This controller manages routing and traffic control for inference services in the Production Stack. It provides sophisticated routing capabilities, speculative decoding support, and caching mechanisms for large language model inference.
 
-## Description
+## Architecture
 
-The Router Controller is a Kubernetes controller that manages the Router custom resource. It watches for Router resources and creates a ConfigMap for the vllm_router.
+### Components
 
-## Getting Started
+1. **Router Controller**
+   - Manages custom resources for inference routing
+   - Handles GPU-aware service discovery and load balancing
+   - Implements prefix-based routing for cache efficiency
+   - Manages session affinity for multi-turn conversations
 
-### Prerequisites
+2. **Custom Resources**
+   - `InferenceService`: Defines model serving endpoints and configurations
+   - `InferenceGateway`: Manages GPU-aware routing rules and service discovery
+   - `InferenceCache`: Handles KV caching configurations for inference
+   - `SpeculativeDecoding`: Configures speculative decoding for LLMs
+   - `PrefillDecodingDisaggregation`: Manages PDD configuration and topology
 
-- go version v1.22.0+
-- docker version 17.03+.
-- kubectl version v1.11.3+.
-- Access to a Kubernetes v1.11.3+ cluster.
+### System Requirements
 
-### To Deploy on the cluster
+- Kubernetes
+- kubectl
+- NVIDIA GPU metrics exporter (for GPU-aware routing)
 
-**Build and push your image to the location specified by `IMG`:**
+## Installation
 
-```sh
-make docker-build docker-push IMG=<some-registry>/router-controller:tag
+### Install Router Controller
+
+```bash
+# Apply CRDs
+kubectl apply -f config/crd/bases/
+
+# Install RBAC
+kubectl apply -f config/rbac/
+
+# Deploy controller
+kubectl apply -f config/manager/
 ```
 
-**NOTE:** This image ought to be published in the personal registry you specified.
-And it is required to have access to pull the image from the working environment.
-Make sure you have the proper permission to the registry if the above commands don't work.
+## Usage Examples
 
-**Install the CRDs into the cluster:**
+### Basic Inference Service
 
-```sh
-make install
+```yaml
+apiVersion: production-stack.vllm.ai/v1alpha1
+kind: InferenceService
+metadata:
+  name: basic-inference
+spec:
+  modelName: "meta-llama/Llama-2-70b-chat-hf"
+  backendRef: "llama2-service-backend"
+  inferenceCacheRef: "llama2-cache"
+  nlpFilters:
+    semanticCache:
+      storeRef: "redis-nlp-cache"
+      threshold: 0.85
+      ttlSeconds: 3600
 ```
 
-**Deploy the Manager to the cluster with the image specified by `IMG`:**
+### GPU-Aware Gateway Configuration
 
-```sh
-make deploy IMG=<some-registry>/router-controller:tag
+```yaml
+apiVersion: production-stack.vllm.ai/v1alpha1
+kind: InferenceGateway
+metadata:
+  name: llm-gateway
+spec:
+  schedulingPolicy: "gpu-load-aware"
+  routeStrategy: "PrefixHash"
+  sessionAffinity: true
+  routes:
+    - model: "llama3-70b"
+      inferenceServiceRef: "llama3-chatbot-service"
+    - model: "mistral3"
+      inferenceServiceRef: "mistral-agent-service"
 ```
 
-> **NOTE**: If you encounter RBAC errors, you may need to grant yourself cluster-admin
-privileges or be logged in as admin.
+### Cache Configuration with PDD and SD
 
-**Create instances of your solution**
-You can apply the samples (examples) from the config/sample:
-
-```sh
-kubectl apply -k config/samples/
+```yaml
+apiVersion: production-stack.vllm.ai/v1alpha1
+kind: InferenceCache
+metadata:
+  name: llama3-chatbot-cache
+spec:
+  modelName: "llama3-70b"
+  kvCacheTransferPolicy:
+    thresholdHitRate: 0.8
+    evictionThreshold: 0.9
+  pddRef: "pdd-llama3-chatbot"
+  sdRef: "sd-llama3-chatbot"
+---
+apiVersion: production-stack.vllm.ai/v1alpha1
+kind: SpeculativeDecoding
+metadata:
+  name: sd-llama3-chatbot
+spec:
+  draftModel: "llama3-1b"
+  targetModel: "llama3-70b"
+---
+apiVersion: production-stack.vllm.ai/v1alpha1
+kind: PrefillDecodingDisaggregation
+metadata:
+  name: pdd-llama3-chatbot
+spec:
+  modelName: "llama3-70b"
+  topologyHint:
+    nodeSelector:
+      gpuType: "NVIDIA-A100"
+      zone: "rack1"
 ```
 
->**NOTE**: Ensure that the samples has default values to test it out.
+## Configuration
 
-### To Uninstall
+### Environment Variables
 
-**Delete the instances (CRs) from the cluster:**
+- `KUBERNETES_NAMESPACE`: Namespace where the controller runs
+- `METRICS_ADDR`: Address to expose metrics on
+- `HEALTH_PROBE_ADDR`: Address for health probes
+- `LEADER_ELECTION_ENABLED`: Enable/disable leader election
+- `GPU_METRICS_ENDPOINT`: Endpoint for GPU metrics collection
 
-```sh
-kubectl delete -k config/samples/
-```
+## Monitoring
 
-**Delete the APIs(CRDs) from the cluster:**
+The controller exposes metrics at `/metrics` endpoint:
 
-```sh
-make uninstall
-```
-
-**UnDeploy the controller from the cluster:**
-
-```sh
-make undeploy
-```
-
-## Project Distribution
-
-Following are the steps to build the installer and distribute this project to users.
-
-### Build the installer
-
-Build the installer for the image built and published in the registry:
-
-```sh
-make build-installer IMG=<some-registry>/router-controller:tag
-```
-
-NOTE: The makefile target mentioned above generates an 'install.yaml'
-file in the dist directory. This file contains all the resources built
-with Kustomize, which are necessary to install this project without
-its dependencies.
-
-### Using the installer
-
-Users can just run kubectl apply -f <URL for YAML BUNDLE> to install the project, i.e.:
-
-```sh
-kubectl apply -f https://raw.githubusercontent.com/<org>/router-controller/<tag or branch>/dist/install.yaml
-```
+- Controller reconciliation metrics
+- Custom resource status metrics
+- GPU utilization metrics
+- Cache performance metrics
+- Routing efficiency metrics
 
 ## StaticRoute CRD
 
-The StaticRoute CRD allows you to configure the vllm_router with static backends and models. The controller reads the CRD and creates a ConfigMap that can be used by the vllm_router with the `--dynamic-config-json` option.
+The StaticRoute CRD allows you to configure static backends and models when dynamic service discovery is not needed.
 
 ### Example
 
@@ -120,7 +157,7 @@ spec:
   # Comma-separated list of model names
   staticModels: "facebook/opt-125m,meta-llama/Llama-3.1-8B-Instruct,facebook/opt-125m"
 
-  # Name of the vllm_router to configure
+  # Name of the router service to configure
   routerRef:
     kind: Service
     apiVersion: v1
@@ -133,41 +170,13 @@ spec:
 
 ### How it works
 
-- The controller watches for StaticRoute resources.
-- When a StaticRoute is created or updated, the controller creates or updates a ConfigMap with the dynamic configuration.
-- The ConfigMap contains a `dynamic_config.json` file with the following structure:
-
-```json
-{
-  "service_discovery": "static",
-  "routing_logic": "roundrobin",
-  "static_backends": "http://localhost:9001,http://localhost:9002,http://localhost:9003",
-  "static_models": "facebook/opt-125m,meta-llama/Llama-3.1-8B-Instruct,facebook/opt-125m"
-}
-```
-
-- The controller checks the health endpoint of the vllm_router services that match the `routerSelector` to verify that the configuration is valid.
-- The vllm_router should be configured to use the ConfigMap with the `--dynamic-config-json` option:
-
-```yaml
-containers:
-- name: vllm-router
-  image: vllm-router:latest
-  args:
-  - "--dynamic-config-json /etc/vllm-router/dynamic_config.json"
-  volumeMounts:
-  - name: config-volume
-    mountPath: /etc/vllm-router
-volumes:
-- name: config-volume
-  configMap:
-    name: vllm-router-config
-```
-
-### Status
+- The controller watches for StaticRoute resources
+- When a StaticRoute is created or updated, the controller creates or updates a ConfigMap with the configuration
+- The ConfigMap contains a `static_config.json` file with the routing configuration
+- The controller verifies the health of the configured backends
 
 The StaticRoute resource has the following status fields:
 
-- `configMapRef`: The name of the ConfigMap that was created.
-- `lastAppliedTime`: The time when the configuration was last applied.
-- `conditions`: A list of conditions that represent the latest available observations of the StaticRoute's state.
+- `configMapRef`: The name of the ConfigMap that was created
+- `lastAppliedTime`: The time when the configuration was last applied
+- `conditions`: A list of conditions that represent the latest available observations of the StaticRoute's state

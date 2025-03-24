@@ -1,0 +1,200 @@
+apiVersion: production-stack.vllm.ai/v1alpha1
+kind: InferenceGateway
+metadata:
+  name: sd-gateway
+spec:
+  serviceDiscovery: "static"
+  routeStrategy: "round-robin"
+  modelRoutes:
+    - modelName: "llama3-70b-draft"
+      serviceRef:
+        name: "sd-draft-service"
+        apiGroup: "production-stack.vllm.ai"
+        kind: "InferenceService"
+    - modelName: "llama3-70b-ngram"
+      serviceRef:
+        name: "sd-ngram-service"
+        apiGroup: "production-stack.vllm.ai"
+        kind: "InferenceService"
+    - modelName: "llama3-70b-mlp"
+      serviceRef:
+        name: "sd-mlp-service"
+        apiGroup: "production-stack.vllm.ai"
+        kind: "InferenceService"
+    - modelName: "llama3-70b-eagle"
+      serviceRef:
+        name: "sd-eagle-service"
+        apiGroup: "production-stack.vllm.ai"
+        kind: "InferenceService"
+---
+# Example 1: Draft Model Speculation
+apiVersion: production-stack.vllm.ai/v1alpha1
+kind: InferenceService
+metadata:
+  name: sd-draft-service
+  namespace: default
+spec:
+  modelName: "meta-llama/Llama-2-70b-chat-hf"
+  backendRef:
+    name: "vllm-draft-backend"
+    namespace: "default"
+    port: 8000
+  speculativeDecodingRef:
+    name: "sd-draft"
+    apiGroup: "production-stack.vllm.ai"
+    kind: "SpeculativeDecoding"
+---
+apiVersion: production-stack.vllm.ai/v1alpha1
+kind: SpeculativeDecoding
+metadata:
+  name: sd-draft
+  namespace: default
+spec:
+  speculationType: "draft"
+  draftModel: "meta-llama/Llama-2-7b-chat-hf"
+  numSpeculativeTokens: 5
+  draftModelConfig:
+    temperature: "0.8"
+    max_tokens: "10"
+---
+# Example 2: N-gram Speculation
+apiVersion: production-stack.vllm.ai/v1alpha1
+kind: InferenceService
+metadata:
+  name: sd-ngram-service
+  namespace: default
+spec:
+  modelName: "meta-llama/Llama-2-70b-chat-hf"
+  backendRef:
+    name: "vllm-ngram-backend"
+    namespace: "default"
+    port: 8000
+  speculativeDecodingRef:
+    name: "sd-ngram"
+    apiGroup: "production-stack.vllm.ai"
+    kind: "SpeculativeDecoding"
+---
+apiVersion: production-stack.vllm.ai/v1alpha1
+kind: SpeculativeDecoding
+metadata:
+  name: sd-ngram
+  namespace: default
+spec:
+  speculationType: "ngram"
+  numSpeculativeTokens: 5
+  promptLookupMax: 4
+---
+# Example 3: MLP Speculator
+apiVersion: production-stack.vllm.ai/v1alpha1
+kind: InferenceService
+metadata:
+  name: sd-mlp-service
+  namespace: default
+spec:
+  modelName: "meta-llama/Llama-2-70b-chat-hf"
+  backendRef:
+    name: "vllm-mlp-backend"
+    namespace: "default"
+    port: 8000
+  speculativeDecodingRef:
+    name: "sd-mlp"
+    apiGroup: "production-stack.vllm.ai"
+    kind: "SpeculativeDecoding"
+---
+apiVersion: production-stack.vllm.ai/v1alpha1
+kind: SpeculativeDecoding
+metadata:
+  name: sd-mlp
+  namespace: default
+spec:
+  speculationType: "mlp"
+  draftModel: "ibm-ai-platform/llama3-70b-accelerator"
+  numSpeculativeTokens: 5
+  draftTensorParallelSize: 1
+  draftModelConfig:
+    temperature: "0.8"
+    max_tokens: "10"
+---
+# Example 4: EAGLE-based Speculation
+apiVersion: production-stack.vllm.ai/v1alpha1
+kind: InferenceService
+metadata:
+  name: sd-eagle-service
+  namespace: default
+spec:
+  modelName: "meta-llama/Llama-2-70b-chat-hf"
+  backendRef:
+    name: "vllm-eagle-backend"
+    namespace: "default"
+    port: 8000
+  speculativeDecodingRef:
+    name: "sd-eagle"
+    apiGroup: "production-stack.vllm.ai"
+    kind: "SpeculativeDecoding"
+---
+apiVersion: production-stack.vllm.ai/v1alpha1
+kind: SpeculativeDecoding
+metadata:
+  name: sd-eagle
+  namespace: default
+spec:
+  speculationType: "eagle"
+  draftModel: "yuhuili/EAGLE-llama2-chat-70B"
+  numSpeculativeTokens: 5
+  draftTensorParallelSize: 1
+  draftModelConfig:
+    temperature: "0.8"
+    max_tokens: "10"
+---
+# Backend Services
+apiVersion: v1
+kind: Service
+metadata:
+  name: vllm-draft-backend
+  namespace: default
+spec:
+  ports:
+    - name: http
+      port: 8000
+      targetPort: 8000
+  selector:
+    app: vllm-draft
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: vllm-ngram-backend
+  namespace: default
+spec:
+  ports:
+    - name: http
+      port: 8000
+      targetPort: 8000
+  selector:
+    app: vllm-ngram
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: vllm-mlp-backend
+  namespace: default
+spec:
+  ports:
+    - name: http
+      port: 8000
+      targetPort: 8000
+  selector:
+    app: vllm-mlp
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: vllm-eagle-backend
+  namespace: default
+spec:
+  ports:
+    - name: http
+      port: 8000
+      targetPort: 8000
+  selector:
+    app: vllm-eagle

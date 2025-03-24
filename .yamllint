@@ -1,0 +1,5 @@
+extends: default
+
+rules:
+  document-start: disable  # allows multiple documents in a single file
+  line-length: disable    # disable line length restrictions
